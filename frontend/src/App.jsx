@@ -46,7 +46,7 @@ export default function App() {
     formData.append('file', compressedFile);
 
     try {
-      const response = await fetch('http://localhost:8000/predict', {
+      const response = await fetch('https://pillcounter.onrender.com/predict', {
         method: 'POST',
         body: formData,
       });
