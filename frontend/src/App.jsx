@@ -5,14 +5,24 @@ export default function App() {
   const [images, setImages] = useState([]);
   const [activeAddTool, setActiveAddTool] = useState('Whole Pill'); 
   const imageRefs = useRef({});
+  const initialPinchDist = useRef({}); // Tracks touch distance for pinch-to-zoom
+
+  // Standardizes AI output names to perfectly match manual tool names so they combine correctly
+  const normalizeClass = (cls) => {
+    if (!cls) return 'Whole Pill';
+    const lower = cls.toLowerCase();
+    if (lower.includes('half')) return 'Half Pill';
+    if (lower.includes('quarter')) return 'Quarter Pill';
+    if (lower.includes('other')) return 'Other';
+    return 'Whole Pill';
+  };
 
   const calculateTotalPills = (counts) => {
     let total = 0;
     Object.entries(counts).forEach(([cat, count]) => {
-      const name = cat.toLowerCase();
-      if (name.includes('half')) total += count * 0.5;
-      else if (name.includes('quarter')) total += count * 0.25;
-      else if (name.includes('other')) total += 0; 
+      if (cat === 'Half Pill') total += count * 0.5;
+      else if (cat === 'Quarter Pill') total += count * 0.25;
+      else if (cat === 'Other') total += 0; 
       else total += count * 1; 
     });
     return total;
@@ -72,12 +82,11 @@ export default function App() {
         id: Date.now() + '-' + index,
         x: dot.x,
         y: dot.y,
-        class: dot.class 
+        class: normalizeClass(dot.class) // Force AI classes to match manual classes
       }));
 
       const counts = newDots.reduce((acc, dot) => {
-        const cat = dot.class || 'Whole Pill';
-        acc[cat] = (acc[cat] || 0) + 1;
+        acc[dot.class] = (acc[dot.class] || 0) + 1;
         return acc;
       }, {});
 
@@ -110,8 +119,7 @@ export default function App() {
       if (img.id === imageId) {
         const updatedDots = [...img.dots, newDot];
         const updatedCounts = updatedDots.reduce((acc, dot) => {
-          const cat = dot.class || 'Whole Pill';
-          acc[cat] = (acc[cat] || 0) + 1;
+          acc[dot.class] = (acc[dot.class] || 0) + 1;
           return acc;
         }, {});
         return { ...img, dots: updatedDots, categoryCounts: updatedCounts };
@@ -126,8 +134,7 @@ export default function App() {
       if (img.id === imageId) {
         const updatedDots = img.dots.filter(dot => dot.id !== dotId);
         const updatedCounts = updatedDots.reduce((acc, dot) => {
-          const cat = dot.class || 'Whole Pill';
-          acc[cat] = (acc[cat] || 0) + 1;
+          acc[dot.class] = (acc[dot.class] || 0) + 1;
           return acc;
         }, {});
         return { ...img, dots: updatedDots, categoryCounts: updatedCounts };
@@ -147,9 +154,39 @@ export default function App() {
     }));
   };
 
+  // Touch event handlers for Pinch-to-Zoom
+  const handleTouchStart = (e, imageId) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      initialPinchDist.current[imageId] = dist;
+    }
+  };
+
+  const handleTouchMove = (e, imageId) => {
+    if (e.touches.length === 2 && initialPinchDist.current[imageId]) {
+      const currentDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const diff = currentDist - initialPinchDist.current[imageId];
+      
+      if (Math.abs(diff) > 30) { // Sensitivity threshold
+        handleZoom(imageId, diff > 0 ? 'in' : 'out');
+        initialPinchDist.current[imageId] = currentDist; // Reset to allow continuous fluid zooming
+      }
+    }
+  };
+
+  const handleTouchEnd = (e, imageId) => {
+    initialPinchDist.current[imageId] = null;
+  };
+
   return (
-    // Added pb-32 to ensure content isn't hidden behind the fixed bottom bar
-    <div className="min-h-screen bg-slate-100 p-4 md:p-8 pb-32 font-sans text-slate-800 flex justify-center">
+    // Increased bottom padding to pb-40 to comfortably clear the fixed bottom toolbar
+    <div className="min-h-screen bg-slate-100 p-4 md:p-8 pb-40 font-sans text-slate-800 flex justify-center">
       <div className="w-full max-w-4xl flex flex-col gap-6">
 
         <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex justify-between items-center">
@@ -173,6 +210,13 @@ export default function App() {
         {images.map((img) => (
           <div key={img.id} className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-4">
             
+            {/* Contextual Prompt Added Here */}
+            {img.status === 'done' && (
+              <div className="bg-blue-50 text-blue-800 border border-blue-200 px-4 py-2 rounded-lg text-center font-medium text-sm shadow-sm">
+                Tap a dot to remove wrong count, tap image to add <span className="font-bold underline">{activeAddTool}</span>
+              </div>
+            )}
+
             <div className="relative w-full bg-slate-200 rounded-xl border-2 border-dashed border-slate-300 shadow-inner overflow-hidden">
               
               {img.status === 'done' && (
@@ -183,7 +227,13 @@ export default function App() {
                 </div>
               )}
 
-              <div className="w-full max-h-[60vh] overflow-auto">
+              {/* Added Touch Events to Viewport */}
+              <div 
+                className="w-full max-h-[60vh] overflow-auto touch-pan-x touch-pan-y"
+                onTouchStart={(e) => handleTouchStart(e, img.id)}
+                onTouchMove={(e) => handleTouchMove(e, img.id)}
+                onTouchEnd={(e) => handleTouchEnd(e, img.id)}
+              >
                 <div 
                   className="relative cursor-crosshair leading-none origin-top-left transition-all duration-200" 
                   style={{ width: `${img.zoom}%` }}
@@ -193,14 +243,14 @@ export default function App() {
                     ref={el => imageRefs.current[img.id] = el} 
                     src={img.url} 
                     alt="Pill tray" 
-                    className="w-full h-auto block" 
+                    className="w-full h-auto block pointer-events-none" 
                   />
 
                   {img.status === 'done' && img.dots.map((dot) => {
                     let dotColor = "bg-emerald-400";
-                    if (dot.class.toLowerCase().includes('half')) dotColor = "bg-yellow-400";
-                    else if (dot.class.toLowerCase().includes('quarter')) dotColor = "bg-orange-400";
-                    else if (dot.class.toLowerCase().includes('other')) dotColor = "bg-purple-400";
+                    if (dot.class === 'Half Pill') dotColor = "bg-yellow-400";
+                    else if (dot.class === 'Quarter Pill') dotColor = "bg-orange-400";
+                    else if (dot.class === 'Other') dotColor = "bg-purple-400";
 
                     return (
                       <div 
@@ -256,10 +306,8 @@ export default function App() {
 
       </div>
 
-      {/* Sticky Bottom Tool Selector */}
       {images.some(img => img.status === 'done') && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md p-4 border-t border-slate-200 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.1)] flex flex-col items-center gap-2 transition-all">
-          <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Tap Image to Add:</span>
           <div className="flex flex-wrap justify-center gap-2 max-w-4xl mx-auto w-full">
             {['Whole Pill', 'Half Pill', 'Quarter Pill', 'Other'].map(tool => (
               <button
