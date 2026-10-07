@@ -5,9 +5,8 @@ export default function App() {
   const [images, setImages] = useState([]);
   const [activeAddTool, setActiveAddTool] = useState('Whole Pill'); 
   const imageRefs = useRef({});
-  const initialPinchDist = useRef({}); // Tracks touch distance for pinch-to-zoom
+  const initialPinchDist = useRef({});
 
-  // Standardizes AI output names to perfectly match manual tool names so they combine correctly
   const normalizeClass = (cls) => {
     if (!cls) return 'Whole Pill';
     const lower = cls.toLowerCase();
@@ -54,8 +53,8 @@ export default function App() {
   const processImage = async (imgData) => {
     let compressedFile = imgData.file;
     const options = {
-      maxSizeMB: 0.5,
-      maxWidthOrHeight: 1024,
+      maxSizeMB: 0.1,          // Reduced from 0.5
+      maxWidthOrHeight: 640,   // Reduced from 1024 (Matches YOLO's native size)
       useWebWorker: true
     };
 
@@ -82,7 +81,7 @@ export default function App() {
         id: Date.now() + '-' + index,
         x: dot.x,
         y: dot.y,
-        class: normalizeClass(dot.class) // Force AI classes to match manual classes
+        class: normalizeClass(dot.class) 
       }));
 
       const counts = newDots.reduce((acc, dot) => {
@@ -101,6 +100,20 @@ export default function App() {
         img.id === imgData.id ? { ...img, status: 'error' } : img
       ));
     }
+  };
+
+  // New function to handle retries for failed images
+  const handleRetry = (imageId) => {
+    const imgToRetry = images.find(img => img.id === imageId);
+    if (!imgToRetry) return;
+    
+    // Set status back to analyzing
+    setImages(prev => prev.map(img => 
+      img.id === imageId ? { ...img, status: 'analyzing' } : img
+    ));
+    
+    // Send it back to the backend
+    processImage(imgToRetry);
   };
 
   const handleImageClick = (e, imageId) => {
@@ -154,7 +167,6 @@ export default function App() {
     }));
   };
 
-  // Touch event handlers for Pinch-to-Zoom
   const handleTouchStart = (e, imageId) => {
     if (e.touches.length === 2) {
       const dist = Math.hypot(
@@ -173,9 +185,9 @@ export default function App() {
       );
       const diff = currentDist - initialPinchDist.current[imageId];
       
-      if (Math.abs(diff) > 30) { // Sensitivity threshold
+      if (Math.abs(diff) > 30) {
         handleZoom(imageId, diff > 0 ? 'in' : 'out');
-        initialPinchDist.current[imageId] = currentDist; // Reset to allow continuous fluid zooming
+        initialPinchDist.current[imageId] = currentDist; 
       }
     }
   };
@@ -185,32 +197,32 @@ export default function App() {
   };
 
   return (
-    // Increased bottom padding to pb-40 to comfortably clear the fixed bottom toolbar
-    <div className="min-h-screen bg-slate-100 p-4 md:p-8 pb-40 font-sans text-slate-800 flex justify-center">
-      <div className="w-full max-w-4xl flex flex-col gap-6">
-
-        <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Pill Counter AI</h1>
-            <p className="text-slate-400 text-sm mt-1">Automated Detection & Verification</p>
-          </div>
+    // Added pt-24 to ensure content clears the new fixed top banner
+    <div className="min-h-screen bg-slate-100 p-4 md:p-8 pt-24 pb-40 font-sans text-slate-800 flex justify-center">
+      
+      {/* NEW: Fixed Top Navigation Banner */}
+      <div className="fixed top-0 left-0 right-0 z-50 bg-slate-900 text-white px-4 py-3 shadow-xl flex justify-between items-center">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Pill Counter AI</h1>
+          <p className="text-slate-400 text-xs hidden md:block mt-0.5">Automated Detection & Verification</p>
         </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-4 justify-center">
-          <label className="flex-1 cursor-pointer bg-blue-600 text-white text-center px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition shadow-md">
-            Upload Pictures
+        <div className="flex gap-2 md:gap-4">
+          <label className="cursor-pointer bg-blue-600 text-white text-center px-4 md:px-6 py-2 rounded-lg font-bold text-sm md:text-base hover:bg-blue-700 transition shadow-md whitespace-nowrap">
+            Upload
             <input type="file" multiple accept="image/*" className="hidden" onChange={handleImageUpload} />
           </label>
-          <label className="flex-1 cursor-pointer bg-emerald-600 text-white text-center px-8 py-4 rounded-xl font-bold text-lg hover:bg-emerald-700 transition shadow-md">
-            Snap Picture
+          <label className="cursor-pointer bg-emerald-600 text-white text-center px-4 md:px-6 py-2 rounded-lg font-bold text-sm md:text-base hover:bg-emerald-700 transition shadow-md whitespace-nowrap">
+            Snap
             <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload} />
           </label>
         </div>
+      </div>
+
+      <div className="w-full max-w-4xl flex flex-col gap-6">
 
         {images.map((img) => (
           <div key={img.id} className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-4">
             
-            {/* Contextual Prompt Added Here */}
             {img.status === 'done' && (
               <div className="bg-blue-50 text-blue-800 border border-blue-200 px-4 py-2 rounded-lg text-center font-medium text-sm shadow-sm">
                 Tap a dot to remove wrong count, tap image to add <span className="font-bold underline">{activeAddTool}</span>
@@ -227,7 +239,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Added Touch Events to Viewport */}
               <div 
                 className="w-full max-h-[60vh] overflow-auto touch-pan-x touch-pan-y"
                 onTouchStart={(e) => handleTouchStart(e, img.id)}
@@ -272,7 +283,18 @@ export default function App() {
                   Status: 
                   {img.status === 'analyzing' && <span className="text-purple-600 bg-purple-100 px-3 py-1 rounded-full text-sm animate-pulse">Roboflow AI counting...</span>}
                   {img.status === 'done' && <span className="text-emerald-600 bg-emerald-100 px-3 py-1 rounded-full text-sm">Count Complete</span>}
-                  {img.status === 'error' && <span className="text-red-600 bg-red-100 px-3 py-1 rounded-full text-sm">Error processing</span>}
+                  {/* NEW: Updated Error State with Try Again Button */}
+                  {img.status === 'error' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-red-600 bg-red-100 px-3 py-1 rounded-full text-sm">Error processing</span>
+                      <button 
+                        onClick={() => handleRetry(img.id)}
+                        className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-bold shadow hover:bg-red-600 transition"
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {img.status === 'done' && (
