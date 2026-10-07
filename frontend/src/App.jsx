@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import imageCompression from 'browser-image-compression';
 
 export default function App() {
@@ -6,6 +6,15 @@ export default function App() {
   const [activeAddTool, setActiveAddTool] = useState('Whole Pill'); 
   const imageRefs = useRef({});
   const initialPinchDist = useRef({});
+  
+  // NEW: References to handle the 2-second auto-save timer
+  const saveTimers = useRef({});
+  const latestImages = useRef(images);
+
+  // Keep a fresh reference to images so the timeout always reads the latest data
+  useEffect(() => {
+    latestImages.current = images;
+  }, [images]);
 
   const normalizeClass = (cls) => {
     if (!cls) return 'Whole Pill';
@@ -25,6 +34,34 @@ export default function App() {
       else total += count * 1; 
     });
     return total;
+  };
+
+  // NEW: The Auto-Save Trigger Function
+  const triggerAutoSave = (imageId) => {
+    clearTimeout(saveTimers.current[imageId]); // Reset the timer on every tap
+    
+    saveTimers.current[imageId] = setTimeout(async () => {
+      const imgToSave = latestImages.current.find(img => img.id === imageId);
+      if (!imgToSave || imgToSave.status !== 'done') return;
+
+      const payload = {
+        image_id: imgToSave.id,
+        total_pills: calculateTotalPills(imgToSave.categoryCounts),
+        breakdown: imgToSave.categoryCounts,
+        dots: imgToSave.dots
+      };
+
+      try {
+        await fetch('https://pillcounter.onrender.com/save-results', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        console.log("Auto-saved to database:", payload);
+      } catch (error) {
+        console.error("Auto-save failed:", error);
+      }
+    }, 2000); // Wait 2000 milliseconds (2 seconds) after the last tap
   };
 
   const handleImageUpload = async (e) => {
@@ -53,8 +90,8 @@ export default function App() {
   const processImage = async (imgData) => {
     let compressedFile = imgData.file;
     const options = {
-      maxSizeMB: 0.1,          // Reduced from 0.5
-      maxWidthOrHeight: 640,   // Reduced from 1024 (Matches YOLO's native size)
+      maxSizeMB: 0.1,          
+      maxWidthOrHeight: 640,   
       useWebWorker: true
     };
 
@@ -94,6 +131,10 @@ export default function App() {
           ? { ...img, status: 'done', dots: newDots, categoryCounts: counts } 
           : img
       ));
+      
+      // Auto-save the initial AI prediction
+      triggerAutoSave(imgData.id);
+
     } catch (error) {
       console.error("API Error:", error);
       setImages(prev => prev.map(img => 
@@ -102,17 +143,14 @@ export default function App() {
     }
   };
 
-  // New function to handle retries for failed images
   const handleRetry = (imageId) => {
     const imgToRetry = images.find(img => img.id === imageId);
     if (!imgToRetry) return;
     
-    // Set status back to analyzing
     setImages(prev => prev.map(img => 
       img.id === imageId ? { ...img, status: 'analyzing' } : img
     ));
     
-    // Send it back to the backend
     processImage(imgToRetry);
   };
 
@@ -139,6 +177,9 @@ export default function App() {
       }
       return img;
     }));
+
+    // Trigger the save timer when a dot is added
+    triggerAutoSave(imageId);
   };
 
   const removeDot = (e, imageId, dotId) => {
@@ -154,6 +195,9 @@ export default function App() {
       }
       return img;
     }));
+
+    // Trigger the save timer when a dot is removed
+    triggerAutoSave(imageId);
   };
 
   const handleZoom = (imageId, direction) => {
@@ -197,10 +241,8 @@ export default function App() {
   };
 
   return (
-    // Added pt-24 to ensure content clears the new fixed top banner
     <div className="min-h-screen bg-slate-100 p-4 md:p-8 pt-24 pb-40 font-sans text-slate-800 flex justify-center">
       
-      {/* NEW: Fixed Top Navigation Banner */}
       <div className="fixed top-0 left-0 right-0 z-50 bg-slate-900 text-white px-4 py-3 shadow-xl flex justify-between items-center">
         <div>
           <h1 className="text-xl md:text-2xl font-bold tracking-tight">Pill Counter AI</h1>
@@ -219,7 +261,6 @@ export default function App() {
       </div>
 
       <div className="w-full max-w-4xl flex flex-col gap-6">
-
         {images.map((img) => (
           <div key={img.id} className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-4">
             
@@ -283,7 +324,6 @@ export default function App() {
                   Status: 
                   {img.status === 'analyzing' && <span className="text-purple-600 bg-purple-100 px-3 py-1 rounded-full text-sm animate-pulse">Roboflow AI counting...</span>}
                   {img.status === 'done' && <span className="text-emerald-600 bg-emerald-100 px-3 py-1 rounded-full text-sm">Count Complete</span>}
-                  {/* NEW: Updated Error State with Try Again Button */}
                   {img.status === 'error' && (
                     <div className="flex items-center gap-2">
                       <span className="text-red-600 bg-red-100 px-3 py-1 rounded-full text-sm">Error processing</span>
@@ -316,7 +356,6 @@ export default function App() {
                 </div>
               )}
             </div>
-
           </div>
         ))}
         
@@ -325,7 +364,6 @@ export default function App() {
             No images uploaded yet.
           </div>
         )}
-
       </div>
 
       {images.some(img => img.status === 'done') && (
