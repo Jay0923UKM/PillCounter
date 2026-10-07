@@ -4,3 +4,5 @@ python-multipart
 requests
 numpy
 opencv-python-headless
+supabase
+pydantic
